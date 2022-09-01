@@ -1,6 +1,7 @@
 package com.solace.maas.ep.runtime.agent.service;
 
 import com.solace.maas.ep.runtime.agent.event.MessagingServiceEvent;
+import com.solace.maas.ep.runtime.agent.plugin.config.enumeration.MessagingServiceType;
 import com.solace.maas.ep.runtime.agent.plugin.manager.client.MessagingServiceClientManager;
 import com.solace.maas.ep.runtime.agent.plugin.messagingService.event.AuthenticationDetailsEvent;
 import com.solace.maas.ep.runtime.agent.plugin.messagingService.event.ConnectionDetailsEvent;
@@ -9,15 +10,21 @@ import com.solace.maas.ep.runtime.agent.repository.messagingservice.MessagingSer
 import com.solace.maas.ep.runtime.agent.repository.model.mesagingservice.AuthenticationDetailsEntity;
 import com.solace.maas.ep.runtime.agent.repository.model.mesagingservice.ConnectionDetailsEntity;
 import com.solace.maas.ep.runtime.agent.repository.model.mesagingservice.MessagingServiceEntity;
-import com.solace.maas.ep.runtime.agent.plugin.config.enumeration.MessagingServiceType;
+import com.solace.maas.ep.runtime.agent.service.encryption.EncryptionService;
 import lombok.extern.slf4j.Slf4j;
 import net.logstash.logback.encoder.org.apache.commons.lang3.ArrayUtils;
 import net.logstash.logback.encoder.org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
 import javax.transaction.Transactional;
-import java.nio.charset.StandardCharsets;
+import java.io.IOException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.spec.InvalidKeySpecException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -38,11 +45,15 @@ public class MessagingServiceDelegateServiceImpl implements MessagingServiceDele
 
     private final Map<String, Object> messagingServiceClients;
 
+    private final EncryptionService encryptionService;
+
     @Autowired
     public MessagingServiceDelegateServiceImpl(MessagingServiceRepository repository,
-                                               Map<String, MessagingServiceClientManager<?>> messagingServiceManagers) {
+                                               Map<String, MessagingServiceClientManager<?>> messagingServiceManagers,
+                                               EncryptionService encryptionService) {
         this.repository = repository;
         this.messagingServiceManagers = messagingServiceManagers;
+        this.encryptionService = encryptionService;
         messagingServiceClients = new HashMap<>();
     }
 
@@ -53,8 +64,10 @@ public class MessagingServiceDelegateServiceImpl implements MessagingServiceDele
      * @param messagingServiceEvent Messaging Service Details for a Messaging Service.
      */
     @Transactional
-    public MessagingServiceEntity addMessagingService(MessagingServiceEvent messagingServiceEvent) {
+    public MessagingServiceEntity addMessagingService(MessagingServiceEvent messagingServiceEvent)
+            throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
         List<ConnectionDetailsEntity> connectionDetailsEntities = new ArrayList<>();
+        this.encryptionService.parseAndInitializeKeys();
 
         MessagingServiceEntity messagingServiceEntity = MessagingServiceEntity.builder()
                 .id(messagingServiceEvent.getId())
@@ -65,6 +78,9 @@ public class MessagingServiceDelegateServiceImpl implements MessagingServiceDele
         messagingServiceEvent.getConnectionDetails()
                 .forEach(connectionDetailsEvent -> {
 
+                    List<AuthenticationDetailsEvent> authenticationDetailsEvents =
+                            connectionDetailsEvent.getAuthenticationDetails();
+
                     ConnectionDetailsEntity connectionDetailsEntity = ConnectionDetailsEntity.builder()
                             .name(connectionDetailsEvent.getName())
                             .connectionUrl(connectionDetailsEvent.getConnectionUrl())
@@ -73,7 +89,7 @@ public class MessagingServiceDelegateServiceImpl implements MessagingServiceDele
                             .build();
 
                     List<AuthenticationDetailsEntity> authenticationDetailsEntities =
-                            connectionDetailsEvent.getAuthenticationDetails()
+                            authenticationDetailsEvents
                                     .stream()
                                     .map(authenticationDetailsEvent -> {
                                         AuthenticationDetailsEntity authenticationDetailsEntity =
@@ -83,9 +99,16 @@ public class MessagingServiceDelegateServiceImpl implements MessagingServiceDele
                                                         .build();
 
                                         if (!StringUtils.isEmpty(authenticationDetailsEvent.getPassword())) {
-                                            authenticationDetailsEntity.setPassword((
-                                                    ArrayUtils.toObject(authenticationDetailsEvent.getPassword()
-                                                            .getBytes(StandardCharsets.UTF_8))));
+                                            try {
+                                                byte[] encryptedPassword = encryptionService.encrypt(authenticationDetailsEvent.getPassword());
+                                                if (!ArrayUtils.isEmpty(encryptedPassword)) {
+                                                    authenticationDetailsEvent.setEncryptedPassword(encryptedPassword);
+                                                    authenticationDetailsEntity.setPassword(ArrayUtils.toObject(encryptedPassword));
+                                                }
+                                            } catch (NoSuchPaddingException | NoSuchAlgorithmException |
+                                                    InvalidKeyException | IllegalBlockSizeException | BadPaddingException e) {
+                                                e.printStackTrace();
+                                            }
                                         }
 
                                         return authenticationDetailsEntity;
@@ -126,7 +149,10 @@ public class MessagingServiceDelegateServiceImpl implements MessagingServiceDele
      */
     @SuppressWarnings("unchecked")
     @Transactional
-    public <T> T getMessagingServiceClient(String messagingServiceId) {
+    public <T> T getMessagingServiceClient(String messagingServiceId)
+            throws NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException,
+            BadPaddingException, InvalidKeyException {
+
         MessagingServiceEntity messagingServiceEntity = getMessagingServiceById(messagingServiceId);
 
         ConnectionDetailsEntity connectionDetailsEntity = messagingServiceEntity
@@ -146,9 +172,12 @@ public class MessagingServiceDelegateServiceImpl implements MessagingServiceDele
         AuthenticationDetailsEvent authenticationDetailsEvent = AuthenticationDetailsEvent.builder()
                 .id(authenticationDetailsEntity.getId())
                 .username(authenticationDetailsEntity.getUsername())
-                .password(authenticationDetailsEntity.getPassword() == null ? null:
-                        new String(ArrayUtils.toPrimitive(authenticationDetailsEntity.getPassword()), StandardCharsets.UTF_8))
                 .build();
+
+        if (authenticationDetailsEntity.getPassword() != null) {
+            String decryptedPassword = encryptionService.decrypt(ArrayUtils.toPrimitive(authenticationDetailsEntity.getPassword()));
+            authenticationDetailsEvent.setPassword(decryptedPassword);
+        }
 
         ConnectionDetailsEvent connectionDetailsEvent = ConnectionDetailsEvent.builder()
                 .messagingServiceId(messagingServiceId)

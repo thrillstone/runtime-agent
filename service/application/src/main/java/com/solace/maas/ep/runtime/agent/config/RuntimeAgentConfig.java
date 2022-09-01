@@ -18,6 +18,9 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 
+import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
+import java.security.spec.InvalidKeySpecException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -72,10 +75,13 @@ public class RuntimeAgentConfig implements ApplicationRunner {
                         .connectionDetails(connectionDetails)
                         .build();
 
-                MessagingServiceEntity addedMessagingServiceEntity =
-                        messagingServiceDelegateService.addMessagingService(messagingServiceEvent);
+                try {
+                    MessagingServiceEntity addedMessagingServiceEntity = messagingServiceDelegateService.addMessagingService(messagingServiceEvent);
+                    log.info("Created Solace messaging service: {} {}", solaceMessagingService.getId(), addedMessagingServiceEntity.getName());
 
-                log.info("Created Solace messaging service: {} {}", solaceMessagingService.getId(), addedMessagingServiceEntity.getName());
+                } catch (IOException | InvalidKeySpecException | NoSuchAlgorithmException e) {
+                    e.printStackTrace();
+                }
             });
         } else {
             log.info("Could not find Solace messaging services.");
@@ -104,11 +110,14 @@ public class RuntimeAgentConfig implements ApplicationRunner {
                         .messagingServiceType(MessagingServiceType.KAFKA)
                         .connectionDetails(connectionDetails)
                         .build();
+                try {
+                    MessagingServiceEntity addedMessagingServiceEntity =
+                            messagingServiceDelegateService.addMessagingService(messagingServiceEvent);
 
-                MessagingServiceEntity addedMessagingServiceEntity =
-                        messagingServiceDelegateService.addMessagingService(messagingServiceEvent);
-
-                log.info("Created Kafka messaging service: {} {}", kafkaMessagingService.getId(), addedMessagingServiceEntity.getName());
+                    log.info("Created Kafka messaging service: {} {}", kafkaMessagingService.getId(), addedMessagingServiceEntity.getName());
+                } catch (IOException | NoSuchAlgorithmException | InvalidKeySpecException e) {
+                    e.printStackTrace();
+                }
             });
         } else {
             log.info("Could not find Kafka messaging services.");

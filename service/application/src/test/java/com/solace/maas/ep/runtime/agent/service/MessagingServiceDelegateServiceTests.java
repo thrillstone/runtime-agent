@@ -2,6 +2,7 @@ package com.solace.maas.ep.runtime.agent.service;
 
 import com.solace.maas.ep.runtime.agent.TestConfig;
 import com.solace.maas.ep.runtime.agent.event.MessagingServiceEvent;
+import com.solace.maas.ep.runtime.agent.plugin.config.enumeration.MessagingServiceType;
 import com.solace.maas.ep.runtime.agent.plugin.manager.client.MessagingServiceClientManager;
 import com.solace.maas.ep.runtime.agent.plugin.messagingService.event.AuthenticationDetailsEvent;
 import com.solace.maas.ep.runtime.agent.plugin.messagingService.event.ConnectionDetailsEvent;
@@ -9,7 +10,7 @@ import com.solace.maas.ep.runtime.agent.repository.messagingservice.MessagingSer
 import com.solace.maas.ep.runtime.agent.repository.model.mesagingservice.AuthenticationDetailsEntity;
 import com.solace.maas.ep.runtime.agent.repository.model.mesagingservice.ConnectionDetailsEntity;
 import com.solace.maas.ep.runtime.agent.repository.model.mesagingservice.MessagingServiceEntity;
-import com.solace.maas.ep.runtime.agent.plugin.config.enumeration.MessagingServiceType;
+import com.solace.maas.ep.runtime.agent.service.encryption.EncryptionService;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,12 @@ import org.mockito.Mock;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,6 +41,9 @@ import static org.mockito.Mockito.when;
 @SuppressWarnings("PMD")
 public class MessagingServiceDelegateServiceTests {
     @Mock
+    EncryptionService encryptionService;
+
+    @Mock
     private MessagingServiceRepository repository;
 
     @Mock
@@ -43,7 +53,8 @@ public class MessagingServiceDelegateServiceTests {
     private MessagingServiceDelegateServiceImpl messagingServiceDelegateService;
 
     @Test
-    public void testAddMessagingService() {
+    public void testAddMessagingService() throws Exception {
+
         AuthenticationDetailsEvent authenticationDetailsEvent = AuthenticationDetailsEvent.builder()
                 .id(UUID.randomUUID().toString())
                 .username("username")
@@ -62,6 +73,7 @@ public class MessagingServiceDelegateServiceTests {
                 .connectionDetails(List.of(connectionDetailsEvent))
                 .build();
 
+        when(encryptionService.encrypt("password")).thenReturn("password".getBytes(StandardCharsets.UTF_8));
         when(repository.save(any(MessagingServiceEntity.class)))
                 .thenReturn(MessagingServiceEntity.builder()
                         .messagingServiceType(MessagingServiceType.SOLACE)
@@ -74,7 +86,8 @@ public class MessagingServiceDelegateServiceTests {
     }
 
     @Test
-    public void testGetMessagingServiceClient() {
+    public void testGetMessagingServiceClient()
+            throws NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
         MessagingServiceClientManager clientManager = mock(MessagingServiceClientManager.class);
 
         byte[] encryptedPassword = "encryptedPassword".getBytes();
@@ -92,6 +105,7 @@ public class MessagingServiceDelegateServiceTests {
                 .authenticationDetails(List.of(authenticationDetailsEntity))
                 .build();
 
+        when(encryptionService.decrypt(encryptedPassword)).thenReturn("password");
         when(repository.findById(any(String.class)))
                 .thenReturn(Optional.of(MessagingServiceEntity.builder()
                         .messagingServiceType(MessagingServiceType.KAFKA)

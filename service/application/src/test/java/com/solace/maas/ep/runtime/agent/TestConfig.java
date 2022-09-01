@@ -11,6 +11,7 @@ import com.solace.maas.ep.runtime.agent.plugin.config.VMRProperties;
 import com.solace.maas.ep.runtime.agent.plugin.config.eventPortal.EventPortalPluginProperties;
 import com.solace.maas.ep.runtime.agent.plugin.messagingService.RtoMessageBuilder;
 import com.solace.maas.ep.runtime.agent.plugin.vmr.VmrProcessor;
+import com.solace.maas.ep.runtime.agent.service.encryption.EncryptionService;
 import com.solace.messaging.MessagingService;
 import com.solace.messaging.publisher.DirectMessagePublisher;
 import com.solace.messaging.publisher.OutboundMessageBuilder;
@@ -115,6 +116,12 @@ public class TestConfig {
     @Primary
     public RtoMessageBuilder webMessagingService() {
         return mock(RtoMessageBuilder.class);
+    }
+
+    @Bean
+    @Primary
+    public EncryptionService EncryptionService() {
+        return mock(EncryptionService.class);
     }
 
     @Bean

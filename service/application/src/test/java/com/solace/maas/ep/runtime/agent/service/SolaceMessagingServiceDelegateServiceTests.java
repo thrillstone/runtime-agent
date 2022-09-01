@@ -9,6 +9,7 @@ import com.solace.maas.ep.runtime.agent.repository.model.mesagingservice.Messagi
 import com.solace.maas.ep.runtime.agent.plugin.config.enumeration.MessagingServiceType;
 import com.solace.maas.ep.runtime.agent.plugin.manager.client.MessagingServiceClientManager;
 import com.solace.maas.ep.runtime.agent.plugin.processor.solace.semp.SolaceHttpSemp;
+import com.solace.maas.ep.runtime.agent.service.encryption.EncryptionService;
 import org.apache.commons.lang.ArrayUtils;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
@@ -16,6 +17,11 @@ import org.mockito.Mock;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -30,6 +36,9 @@ import static org.mockito.Mockito.when;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, classes = TestConfig.class)
 public class SolaceMessagingServiceDelegateServiceTests {
     @Mock
+    EncryptionService encryptionService;
+
+    @Mock
     private MessagingServiceRepository repository;
 
     @Mock
@@ -39,7 +48,8 @@ public class SolaceMessagingServiceDelegateServiceTests {
     private MessagingServiceDelegateServiceImpl messagingServiceDelegateService;
 
     @Test
-    public void testSolaceGetMessagingServiceClient() {
+    public void testSolaceGetMessagingServiceClient()
+            throws NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
         MessagingServiceClientManager clientManager = mock(MessagingServiceClientManager.class);
 
         byte[] encryptedPassword = "encryptedPassword".getBytes();
@@ -58,6 +68,8 @@ public class SolaceMessagingServiceDelegateServiceTests {
                 .authenticationDetails(List.of(authenticationDetailsEntity))
                 .build();
 
+
+        when(encryptionService.decrypt(encryptedPassword)).thenReturn("password");
         when(repository.findById(any(String.class)))
                 .thenReturn(Optional.of(MessagingServiceEntity.builder()
                         .messagingServiceType(MessagingServiceType.SOLACE)
@@ -72,9 +84,9 @@ public class SolaceMessagingServiceDelegateServiceTests {
         when(clientManager.getClient(any(ConnectionDetailsEvent.class)))
                 .thenReturn(mock(SolaceHttpSemp.class));
 
-        SolaceHttpSemp result = messagingServiceDelegateService
-                .getMessagingServiceClient("test service");
-
-        assertThat(result).isNotNull();
+        SolaceHttpSemp result =
+                messagingServiceDelegateService.getMessagingServiceClient("test service");
+        assertThat(result)
+                .isNotNull();
     }
 }
