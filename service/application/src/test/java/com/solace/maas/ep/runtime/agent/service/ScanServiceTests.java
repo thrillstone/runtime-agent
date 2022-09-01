@@ -143,7 +143,7 @@ public class ScanServiceTests {
         when(scanRepository.save(scanEntity))
                 .thenReturn(scanEntity);
 
-        scanService.singleScan(List.of(routeBundle), 2);
+        scanService.singleScan("id", List.of(routeBundle), 2);
 
         assertThatNoException();
     }

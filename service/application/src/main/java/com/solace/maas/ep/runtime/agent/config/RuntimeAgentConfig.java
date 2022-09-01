@@ -9,7 +9,6 @@ import com.solace.maas.ep.runtime.agent.plugin.messagingService.MessagingService
 import com.solace.maas.ep.runtime.agent.plugin.messagingService.event.ConnectionDetailsEvent;
 import com.solace.maas.ep.runtime.agent.plugin.properties.KafkaProperties;
 import com.solace.maas.ep.runtime.agent.plugin.properties.SolacePluginProperties;
-import com.solace.maas.ep.runtime.agent.repository.model.mesagingservice.MessagingServiceEntity;
 import com.solace.maas.ep.runtime.agent.service.MessagingServiceDelegateServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,8 +17,8 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 
 @ExcludeFromJacocoGeneratedReport
@@ -53,65 +52,73 @@ public class RuntimeAgentConfig implements ApplicationRunner {
     private void createSolaceMessagingServices() {
         List<MessagingServiceProperties> solaceMessagingServices = solaceProperties.getMessagingServices();
 
-        if (solaceMessagingServices != null) {
-            solaceMessagingServices.forEach(solaceMessagingService -> {
-                List<ConnectionDetailsEvent> connectionDetails = new ArrayList<>();
+        List<MessagingServiceEvent> messagingServiceEvents = solaceMessagingServices.stream()
+                .map(solaceMessagingService -> {
+                    List<ConnectionDetailsEvent> connectionDetails = solaceMessagingService.getManagement().getConnections()
+                            .stream()
+                            .map(solaceMessagingServiceConnection -> clientConnectionDetails.createConnectionDetails(
+                                    solaceMessagingService.getId(), solaceMessagingServiceConnection, MessagingServiceType.SOLACE))
+                            .collect(Collectors.toUnmodifiableList());
 
-                solaceMessagingService.getManagement().getConnections()
-                        .forEach(solaceMessagingServiceConnection -> {
-                            ConnectionDetailsEvent connectionDetailsEvent = clientConnectionDetails.createConnectionDetails(
-                                    solaceMessagingService.getId(), solaceMessagingServiceConnection, MessagingServiceType.SOLACE);
+                    return MessagingServiceEvent.builder()
+                            .id(solaceMessagingService.getId())
+                            .name(solaceMessagingService.getName())
+                            .messagingServiceType(MessagingServiceType.SOLACE)
+                            .connectionDetails(connectionDetails)
+                            .build();
+                }).collect(Collectors.toUnmodifiableList());
 
-                            connectionDetails.add(connectionDetailsEvent);
-                        });
-
-                MessagingServiceEvent messagingServiceEvent = MessagingServiceEvent.builder()
-                        .id(solaceMessagingService.getId())
-                        .name(solaceMessagingService.getName())
-                        .messagingServiceType(MessagingServiceType.SOLACE)
-                        .connectionDetails(connectionDetails)
-                        .build();
-
-                MessagingServiceEntity addedMessagingServiceEntity =
-                        messagingServiceDelegateService.addMessagingService(messagingServiceEvent);
-
-                log.info("Created Solace messaging service: {} {}", solaceMessagingService.getId(), addedMessagingServiceEntity.getName());
-            });
-        } else {
-            log.info("Could not find Solace messaging services.");
-        }
+        messagingServiceDelegateService.addMessagingServices(messagingServiceEvents);
     }
 
     private void createKafkaMessagingServices() {
         List<MessagingServiceProperties> kafkaMessagingServices = kafkaProperties.getMessagingServices();
 
-        if (kafkaMessagingServices != null) {
-            kafkaMessagingServices.forEach(kafkaMessagingService -> {
-                List<ConnectionDetailsEvent> connectionDetails = new ArrayList<>();
+        List<MessagingServiceEvent> messagingServiceEvents = kafkaMessagingServices.stream()
+                .map(kafkaMessagingService -> {
+                    List<ConnectionDetailsEvent> connectionDetails = kafkaMessagingService.getManagement().getConnections()
+                            .stream()
+                            .map(kafkaMessagingServiceConnection -> clientConnectionDetails.createConnectionDetails(
+                                    kafkaMessagingService.getId(), kafkaMessagingServiceConnection, MessagingServiceType.KAFKA))
+                            .collect(Collectors.toUnmodifiableList());
 
-                kafkaMessagingService.getManagement().getConnections()
-                        .forEach(kafkaMessagingServiceConnection -> {
-                            ConnectionDetailsEvent connectionDetailsEvent =
-                                    clientConnectionDetails.createConnectionDetails(
-                                            kafkaMessagingService.getId(), kafkaMessagingServiceConnection, MessagingServiceType.KAFKA);
+                    return MessagingServiceEvent.builder()
+                            .id(kafkaMessagingService.getId())
+                            .name(kafkaMessagingService.getName())
+                            .messagingServiceType(MessagingServiceType.KAFKA)
+                            .connectionDetails(connectionDetails)
+                            .build();
+                }).collect(Collectors.toUnmodifiableList());
 
-                            connectionDetails.add(connectionDetailsEvent);
-                        });
-
-                MessagingServiceEvent messagingServiceEvent = MessagingServiceEvent.builder()
-                        .id(kafkaMessagingService.getId())
-                        .name(kafkaMessagingService.getName())
-                        .messagingServiceType(MessagingServiceType.KAFKA)
-                        .connectionDetails(connectionDetails)
-                        .build();
-
-                MessagingServiceEntity addedMessagingServiceEntity =
-                        messagingServiceDelegateService.addMessagingService(messagingServiceEvent);
-
-                log.info("Created Kafka messaging service: {} {}", kafkaMessagingService.getId(), addedMessagingServiceEntity.getName());
-            });
-        } else {
-            log.info("Could not find Kafka messaging services.");
-        }
+        messagingServiceDelegateService.addMessagingServices(messagingServiceEvents);
     }
+
+//    private void createKafkaMessagingServices() {
+//        List<MessagingServiceProperties> kafkaMessagingServices = kafkaProperties.getMessagingServices();
+//        List<ConnectionDetailsEvent> connectionDetails = new ArrayList<>();
+//
+//        kafkaMessagingServices.forEach(kafkaMessagingService -> {
+//            kafkaMessagingService.getManagement().getConnections()
+//                    .forEach(kafkaMessagingServiceConnection -> {
+//                        ConnectionDetailsEvent connectionDetailsEvent =
+//                                clientConnectionDetails
+//                                        .createConnectionDetails(
+//                                                kafkaMessagingService.getId(), kafkaMessagingServiceConnection, MessagingServiceType.KAFKA);
+//
+//                        connectionDetails.add(connectionDetailsEvent);
+//                    });
+//
+//            MessagingServiceEvent messagingServiceEvent = MessagingServiceEvent.builder()
+//                    .id(kafkaMessagingService.getId())
+//                    .name(kafkaMessagingService.getName())
+//                    .messagingServiceType(MessagingServiceType.KAFKA)
+//                    .connectionDetails(connectionDetails)
+//                    .build();
+//
+//            MessagingServiceEntity addedMessagingServiceEntity =
+//                    messagingServiceDelegateService.addMessagingService(messagingServiceEvent);
+//
+//            log.info("Created Kafka messaging service: {} {}", kafkaMessagingService.getId(), addedMessagingServiceEntity.getName());
+//        });
+//    }
 }

@@ -1,6 +1,7 @@
 package com.solace.maas.ep.runtime.agent.repository.model.mesagingservice;
 
 import com.solace.maas.ep.runtime.agent.plugin.config.enumeration.MessagingServiceType;
+import com.solace.maas.ep.runtime.agent.repository.model.scan.ScanEntity;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -33,4 +34,7 @@ public class MessagingServiceEntity {
 
     @OneToMany(mappedBy = "messagingService", fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ConnectionDetailsEntity> managementDetails;
+
+    @OneToMany(mappedBy = "messagingService", cascade = CascadeType.MERGE, fetch = FetchType.LAZY)
+    private List<ScanEntity> scans;
 }

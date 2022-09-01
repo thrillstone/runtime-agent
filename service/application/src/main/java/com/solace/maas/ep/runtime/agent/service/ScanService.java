@@ -4,11 +4,13 @@ import com.solace.maas.ep.runtime.agent.logging.FileLoggerFactory;
 import com.solace.maas.ep.runtime.agent.plugin.constants.RouteConstants;
 import com.solace.maas.ep.runtime.agent.plugin.route.RouteBundle;
 import com.solace.maas.ep.runtime.agent.processor.LoggingProcessor;
+import com.solace.maas.ep.runtime.agent.repository.model.mesagingservice.MessagingServiceEntity;
 import com.solace.maas.ep.runtime.agent.repository.model.route.RouteEntity;
 import com.solace.maas.ep.runtime.agent.repository.model.scan.ScanDestinationEntity;
 import com.solace.maas.ep.runtime.agent.repository.model.scan.ScanEntity;
 import com.solace.maas.ep.runtime.agent.repository.model.scan.ScanLifecycleEntity;
 import com.solace.maas.ep.runtime.agent.repository.model.scan.ScanRecipientEntity;
+import com.solace.maas.ep.runtime.agent.repository.model.scheduler.SchedulerEntity;
 import com.solace.maas.ep.runtime.agent.repository.scan.ScanRepository;
 import com.solace.maas.ep.runtime.agent.service.lifecycle.ScanLifecycleService;
 import com.solace.maas.ep.runtime.agent.service.logging.LoggingService;
@@ -21,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -38,6 +41,8 @@ public class ScanService {
 
     private final ScanRouteService scanRouteService;
 
+    private final MessagingServiceDelegateServiceImpl messagingServiceDelegateService;
+
     private final RouteService routeService;
 
     private final ProducerTemplate producerTemplate;
@@ -48,17 +53,21 @@ public class ScanService {
 
     private final FileLoggerFactory fileLoggerFactory;
 
+    private final SchedulerService schedulerService;
+
     public ScanService(ScanRepository repository, ScanRouteService scanRouteService,
-                       RouteService routeService, ProducerTemplate producerTemplate,
+                       MessagingServiceDelegateServiceImpl messagingServiceDelegateService, RouteService routeService, ProducerTemplate producerTemplate,
                        LoggingService loggingService, ScanLifecycleService scanLifecycleService,
-                       FileLoggerFactory fileLoggerFactory) {
+                       FileLoggerFactory fileLoggerFactory, SchedulerService schedulerService) {
         this.repository = repository;
         this.scanRouteService = scanRouteService;
+        this.messagingServiceDelegateService = messagingServiceDelegateService;
         this.routeService = routeService;
         this.producerTemplate = producerTemplate;
         this.loggingService = loggingService;
         this.scanLifecycleService = scanLifecycleService;
         this.fileLoggerFactory = fileLoggerFactory;
+        this.schedulerService = schedulerService;
     }
 
     /**
@@ -123,17 +132,34 @@ public class ScanService {
      * @param routeBundles - see description above
      * @return The id of the scan.
      */
-    public String singleScan(List<RouteBundle> routeBundles, int numExpectedCompletionMessages) {
+    public String singleScan(String messagingServiceId, List<RouteBundle> routeBundles,
+                             int numExpectedCompletionMessages) {
+        return performScan(messagingServiceId, routeBundles, numExpectedCompletionMessages, null);
+    }
+
+    public String performScan(String messagingServiceId, List<RouteBundle> routeBundles, int numExpectedCompletionMessages,
+                              String schedulerId) {
+        SchedulerEntity schedulerEntity = null;
+
+        MessagingServiceEntity messagingServiceEntity =
+                messagingServiceDelegateService.getMessagingServiceById(messagingServiceId);
 
         ScanEntity savedScanEntity = null;
 
-        String groupId = UUID.randomUUID().toString();
+        String groupId = schedulerId;
+
+        if(Objects.isNull(groupId)) {
+            groupId = UUID.randomUUID().toString();
+        } else {
+            schedulerEntity = schedulerService.findById(schedulerId);
+        }
 
         for (RouteBundle routeBundle : routeBundles) {
             RouteEntity route = routeService.findById(routeBundle.getRouteId())
                     .orElseThrow();
 
-            ScanEntity returnedScanEntity = setupScan(route, routeBundle, savedScanEntity);
+            ScanEntity returnedScanEntity = setupScan(route, routeBundle, messagingServiceEntity, savedScanEntity,
+                    schedulerEntity);
             String scanId = returnedScanEntity.getId();
 
             if (!loggingService.hasLoggingProcessor(scanId)) {
@@ -163,8 +189,9 @@ public class ScanService {
     }
 
     @Transactional
-    protected ScanEntity setupScan(RouteEntity route, RouteBundle routeBundle, ScanEntity scanEntity) {
-        ScanEntity savedScanEntity = saveScanEntity(route, routeBundle, scanEntity);
+    public ScanEntity setupScan(RouteEntity route, RouteBundle routeBundle, MessagingServiceEntity messagingServiceEntity,
+                                ScanEntity scanEntity, SchedulerEntity schedulerEntity) {
+        ScanEntity savedScanEntity = saveScanEntity(route, routeBundle, scanEntity, messagingServiceEntity, schedulerEntity);
 
         List<ScanDestinationEntity> destinationEntities = routeBundle.getDestinations().stream()
                 .map(destination -> ScanDestinationEntity.builder()
@@ -190,36 +217,42 @@ public class ScanService {
             scanRouteService.saveRecipients(recipientEntities);
         }
 
-        setupRecipientsForScan(savedScanEntity, routeBundle);
+        setupRecipientsForScan(savedScanEntity, routeBundle, messagingServiceEntity, schedulerEntity);
 
         return savedScanEntity;
     }
 
-    private ScanEntity saveScanEntity(RouteEntity route, RouteBundle routeBundle, ScanEntity scanEntity) {
+    private ScanEntity saveScanEntity(RouteEntity route, RouteBundle routeBundle, ScanEntity scanEntity,
+                                      MessagingServiceEntity messagingServiceEntity, SchedulerEntity schedulerEntity) {
         ScanEntity returnScanEntity = scanEntity;
         if (returnScanEntity == null) {
             returnScanEntity = save(ScanEntity.builder()
                     .route(List.of(route))
                     .active(true)
                     .scanType(routeBundle.getScanType())
+                    .messagingService(messagingServiceEntity)
+                    .scheduler(schedulerEntity)
                     .build());
         } else {
             if (routeBundle.isFirstRouteInChain()) {
                 ArrayList<RouteEntity> routeEntities = new ArrayList<>(scanEntity.getRoute());
                 routeEntities.add(route);
                 scanEntity.setRoute(routeEntities);
+                scanEntity.setMessagingService(messagingServiceEntity);
+                scanEntity.setScheduler(schedulerEntity);
                 save(scanEntity);
             }
         }
         return returnScanEntity;
     }
 
-    protected void setupRecipientsForScan(ScanEntity scanEntity, RouteBundle routeBundle) {
+    protected void setupRecipientsForScan(ScanEntity scanEntity, RouteBundle routeBundle,
+                                          MessagingServiceEntity messagingServiceEntity, SchedulerEntity schedulerEntity) {
 
         for (RouteBundle recipient : routeBundle.getRecipients()) {
             RouteEntity route = routeService.findById(recipient.getRouteId())
                     .orElseThrow();
-            setupScan(route, recipient, scanEntity);
+            setupScan(route, recipient, messagingServiceEntity, scanEntity, schedulerEntity);
         }
     }
 

@@ -18,7 +18,6 @@ import org.springframework.stereotype.Service;
 
 import javax.transaction.Transactional;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,17 +53,28 @@ public class MessagingServiceDelegateServiceImpl implements MessagingServiceDele
      */
     @Transactional
     public MessagingServiceEntity addMessagingService(MessagingServiceEvent messagingServiceEvent) {
-        List<ConnectionDetailsEntity> connectionDetailsEntities = new ArrayList<>();
+        MessagingServiceEntity messagingServiceEntity = createMessagingServiceEntity(messagingServiceEvent);
 
+        return repository.save(messagingServiceEntity);
+    }
+
+    public Iterable<MessagingServiceEntity> addMessagingServices(List<MessagingServiceEvent> messagingServiceEvents) {
+        List<MessagingServiceEntity> messagingServiceEntities = messagingServiceEvents.stream()
+                .map(this::createMessagingServiceEntity).collect(Collectors.toUnmodifiableList());
+
+        return repository.saveAll(messagingServiceEntities);
+    }
+
+    private MessagingServiceEntity createMessagingServiceEntity(MessagingServiceEvent messagingServiceEvent) {
         MessagingServiceEntity messagingServiceEntity = MessagingServiceEntity.builder()
                 .id(messagingServiceEvent.getId())
                 .messagingServiceType(messagingServiceEvent.getMessagingServiceType())
                 .name(messagingServiceEvent.getName())
                 .build();
 
-        messagingServiceEvent.getConnectionDetails()
-                .forEach(connectionDetailsEvent -> {
-
+        List<ConnectionDetailsEntity> connectionDetailsEntities = messagingServiceEvent.getConnectionDetails()
+                .stream()
+                .map(connectionDetailsEvent -> {
                     ConnectionDetailsEntity connectionDetailsEntity = ConnectionDetailsEntity.builder()
                             .name(connectionDetailsEvent.getName())
                             .connectionUrl(connectionDetailsEvent.getConnectionUrl())
@@ -89,17 +99,16 @@ public class MessagingServiceDelegateServiceImpl implements MessagingServiceDele
                                         }
 
                                         return authenticationDetailsEntity;
-                                    })
-                                    .collect(Collectors.toUnmodifiableList());
+                                    }).collect(Collectors.toUnmodifiableList());
 
                     connectionDetailsEntity.setAuthenticationDetails(authenticationDetailsEntities);
 
-                    connectionDetailsEntities.add(connectionDetailsEntity);
-                });
+                    return connectionDetailsEntity;
+                }).collect(Collectors.toUnmodifiableList());
 
         messagingServiceEntity.setManagementDetails(connectionDetailsEntities);
 
-        return repository.save(messagingServiceEntity);
+        return messagingServiceEntity;
     }
 
     /**
